@@ -1,0 +1,536 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>가격표 생성기</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<style>
+  :root{
+    --ink:#1f2328;
+    --sub:#6b7280;
+    --line:#d9dde3;
+    --accent:#2f6fed;
+    --danger:#e0475a;
+    --bg:#f6f7f9;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+  .wrap{
+    max-width:920px;
+    margin:0 auto;
+    padding:32px 20px 80px;
+  }
+  .top-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+  }
+  h1{ font-size:22px; margin:0 0 4px; }
+  .desc{ color:var(--sub); font-size:13px; margin:0 0 28px; }
+  .lang-switch{ display:flex; gap:4px; flex-shrink:0; }
+  .lang-switch button{ font-size:12px; padding:6px 12px; border-radius:999px; }
+  .lang-switch button.active{
+    background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;
+  }
+  .step{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px 22px;
+    margin-bottom:16px;
+  }
+  .step-title{
+    display:flex; align-items:center; gap:8px;
+    font-size:15px; font-weight:700; margin-bottom:12px;
+  }
+  .step-num{
+    width:22px;height:22px; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:12px;
+    display:flex;align-items:center;justify-content:center; flex-shrink:0;
+  }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .note{ color:var(--sub); font-size:12.5px; margin:10px 0 0; }
+  button{
+    font-family:inherit; font-size:13px; padding:9px 16px; border-radius:7px;
+    border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer;
+  }
+  button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.ghost{ background:#fff; }
+  button:hover{ filter:brightness(0.97); }
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  input[type=file]{ font-size:13px; }
+
+  .progress-wrap{
+    display:none;
+    align-items:center;
+    gap:10px;
+    margin-top:12px;
+  }
+  .progress-track{
+    flex:1;
+    max-width:260px;
+    height:8px;
+    background:#eef0f3;
+    border-radius:999px;
+    overflow:hidden;
+  }
+  .progress-bar{
+    height:100%;
+    width:0%;
+    background:var(--accent);
+    transition:width 0.15s ease;
+  }
+  .progress-text{
+    font-size:12px;
+    color:var(--sub);
+    white-space:nowrap;
+  }
+
+  .table-scroll{
+    max-height:360px; overflow-y:auto; margin-top:14px;
+    border:1px solid var(--line); border-radius:6px;
+  }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 8px; text-align:left; }
+  th{
+    background:#fafbfc; font-weight:600; color:var(--sub); font-size:12px;
+    position:sticky; top:0; z-index:1;
+  }
+  td input{
+    width:100%; border:none; font-size:13px; font-family:inherit;
+    padding:3px 2px; background:transparent;
+  }
+  td input:focus{ outline:1px solid var(--accent); background:#fff; }
+  .del-btn{
+    border:none; background:none; color:var(--danger); cursor:pointer;
+    font-size:13px; padding:2px 6px;
+  }
+  .empty-msg{ color:var(--sub); font-size:13px; padding:20px 0; text-align:center; }
+  .table-actions{ margin-top:10px; display:flex; gap:8px; align-items:center; }
+  .count-badge{ font-size:12px; color:var(--sub); margin-left:auto; }
+
+  /* ---- 미리보기 영역 ---- */
+  #previewWrap{
+    margin-top:16px;
+    max-height:75vh;
+    overflow-y:auto;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:20px;
+    background:#eef0f3;
+  }
+  #previewWrap:empty{ display:none; }
+
+  /* 실측값(ARTBOX ERP POP 출력 PDF 기준):
+     칸 크기 45.5mm x 63.92mm, 가로 간격 1.44mm, 세로 간격 없음
+     그리드 시작 위치: 왼쪽 11.82mm, 위쪽 18.87mm */
+  .page{
+    width:210mm;
+    height:297mm;
+    background:#fff;
+    margin:0 auto 24px;
+    position:relative;
+    box-shadow:0 1px 4px rgba(0,0,0,0.08);
+  }
+  .tag-grid{
+    position:absolute;
+    left:11.82mm;
+    top:18.87mm;
+    display:grid;
+    grid-template-columns:repeat(4, 45.5mm);
+    grid-template-rows:repeat(4, 63.92mm);
+    column-gap:1.44mm;
+    row-gap:0;
+  }
+  .tag{
+    width:45.5mm;
+    height:63.92mm;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .front{
+    flex:0 0 50%;
+    position:relative;
+    padding:3mm 2.5mm;
+  }
+  .pname{
+    position:absolute;
+    top:3mm;
+    left:2.5mm;
+    right:2.5mm;
+    font-size:10px;
+    line-height:1.3;
+    text-align:left;
+    word-break:keep-all;
+  }
+  .pprice{
+    position:absolute;
+    bottom:3mm;
+    right:2.5mm;
+    font-size:15px;
+    font-weight:800;
+    text-align:right;
+  }
+  .back{
+    flex:0 0 50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+  }
+  .pcode{
+    font-size:15px;
+    font-weight:800;
+    letter-spacing:0.5px;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top-row">
+    <div>
+      <h1 data-i18n="title">가격표 생성기</h1>
+      <p class="desc" data-i18n="desc">엑셀로 제품 정보를 올리면 A4 한 장에 16개씩 가격표(앞: 제품명·가격 / 뒤: 제품코드)가 실제 인쇄 규격에 맞춰 자동으로 채워져요. 출력해서 가운데 접는 선을 기준으로 접으면 완성이에요.</p>
+    </div>
+    <div class="lang-switch">
+      <button id="langKoBtn" class="active" onclick="setLang('ko')">한국어</button>
+      <button id="langJaBtn" onclick="setLang('ja')">日本語</button>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">1</span><span data-i18n="step1">제품 정보 올리기</span></div>
+    <div class="row">
+      <button class="ghost" onclick="downloadTemplate()" data-i18n="templateBtn">엑셀 양식 다운로드</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+    <p class="note" data-i18n="step1desc">양식의 열 순서(제품번호 · 제품명 · 제품금액)를 그대로 써주세요. 제품번호는 숫자만 입력해도 자동으로 00-000000 형태로 바뀌어요.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">2</span><span data-i18n="step2">내용 확인 및 수정</span></div>
+    <div id="tableArea">
+      <p class="empty-msg" data-i18n="emptyMsg">아직 올라온 제품이 없어요. 엑셀을 올리거나 아래에서 직접 추가해 주세요.</p>
+    </div>
+    <div class="table-actions">
+      <button class="ghost" onclick="addRow()" data-i18n="addRow">행 추가</button>
+      <span class="count-badge" id="countBadge"></span>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">3</span><span data-i18n="step3">가격표 만들기</span></div>
+    <div class="row">
+      <button class="primary" onclick="renderPages()" data-i18n="previewBtn">가격표 미리보기 생성</button>
+      <button class="ghost" onclick="exportPdf()" id="pdfBtn" data-i18n="outputPdf">PDF로 출력하기</button>
+      <button class="ghost" onclick="exportExcel()" id="excelBtn" data-i18n="outputExcel">엑셀로 출력하기</button>
+    </div>
+    <div class="progress-wrap" id="pdfProgressWrap">
+      <div class="progress-track"><div class="progress-bar" id="pdfProgressBar"></div></div>
+      <span class="progress-text" id="pdfProgressText">0%</span>
+    </div>
+  </div>
+
+  <div id="previewWrap"></div>
+</div>
+
+<script>
+let items = [];
+let currentLang = 'ko';
+
+const i18n = {
+  ko: {
+    title:'가격표 생성기',
+    desc:'엑셀로 제품 정보를 올리면 A4 한 장에 16개씩 가격표(앞: 제품명·가격 / 뒤: 제품코드)가 실제 인쇄 규격에 맞춰 자동으로 채워져요. 출력해서 가운데 접는 선을 기준으로 접으면 완성이에요.',
+    step1:'제품 정보 올리기',
+    templateBtn:'엑셀 양식 다운로드',
+    step1desc:'양식의 열 순서(제품번호 · 제품명 · 제품금액)를 그대로 써주세요. 제품번호는 숫자만 입력해도 자동으로 00-000000 형태로 바뀌어요.',
+    step2:'내용 확인 및 수정',
+    emptyMsg:'아직 올라온 제품이 없어요. 엑셀을 올리거나 아래에서 직접 추가해 주세요.',
+    addRow:'행 추가',
+    colNo:'제품번호',
+    colName:'제품명',
+    colPrice:'제품금액',
+    del:'삭제',
+    countBadge:(n)=>`총 ${n}개`,
+    step3:'가격표 만들기',
+    previewBtn:'가격표 미리보기 생성',
+    outputPdf:'PDF로 출력하기',
+    outputExcel:'엑셀로 출력하기',
+    outputPdfLoading:'PDF 만드는 중...',
+    outputExcelLoading:'엑셀 만드는 중...',
+    needItemsAlert:'제품 정보를 먼저 올리거나 입력해 주세요.',
+    fileErrorAlert:'엑셀 파일을 읽는 중 문제가 생겼어요. 양식에 맞게 저장했는지 확인해 주세요.',
+    sheetName:(n)=>`${n}페이지`,
+    pdfFileName:'가격표.pdf',
+    excelFileName:'가격표.xlsx',
+    templateFileName:'가격표_양식.xlsx',
+    templateSheetName:'가격표양식',
+    templateSample:['12345678','C타입 필로 화이트','2900']
+  },
+  ja: {
+    title:'価格タグ作成ツール',
+    desc:'エクセルで商品情報をアップロードすると、A4用紙1枚に16個ずつ価格タグ(表:商品名・金額 / 裏:商品コード)が実際の印刷規格に合わせて自動的に作成されます。出力して、中央の折り線で折れば完成です。',
+    step1:'商品情報をアップロード',
+    templateBtn:'エクセルテンプレートをダウンロード',
+    step1desc:'テンプレートの列順(商品番号・商品名・金額)をそのまま使ってください。商品番号は数字だけ入力しても自動的に00-000000の形に変換されます。',
+    step2:'内容の確認と修正',
+    emptyMsg:'まだアップロードされた商品がありません。エクセルをアップロードするか、下から直接追加してください。',
+    addRow:'行を追加',
+    colNo:'商品番号',
+    colName:'商品名',
+    colPrice:'金額',
+    del:'削除',
+    countBadge:(n)=>`合計 ${n}件`,
+    step3:'価格タグを作成',
+    previewBtn:'価格タグのプレビューを作成',
+    outputPdf:'PDFで出力',
+    outputExcel:'エクセルで出力',
+    outputPdfLoading:'PDF作成中...',
+    outputExcelLoading:'エクセル作成中...',
+    needItemsAlert:'先に商品情報をアップロードするか入力してください。',
+    fileErrorAlert:'エクセルファイルの読み込み中に問題が発生しました。テンプレートの形式を確認してください。',
+    sheetName:(n)=>`${n}ページ目`,
+    pdfFileName:'価格タグ.pdf',
+    excelFileName:'価格タグ.xlsx',
+    templateFileName:'価格タグ_テンプレート.xlsx',
+    templateSheetName:'テンプレート',
+    templateSample:['12345678','Cタイプ ピロー ホワイト','2900']
+  }
+};
+
+function t(key){ return i18n[currentLang][key]; }
+
+function setLang(lang){
+  currentLang = lang;
+  document.getElementById('langKoBtn').classList.toggle('active', lang==='ko');
+  document.getElementById('langJaBtn').classList.toggle('active', lang==='ja');
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key = el.getAttribute('data-i18n');
+    if(typeof i18n[lang][key] === 'string') el.textContent = i18n[lang][key];
+  });
+  renderTable();
+}
+
+function downloadTemplate(){
+  const L = i18n[currentLang];
+  const wsData = [
+    [L.colNo, L.colName, L.colPrice],
+    L.templateSample
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{wch:14},{wch:24},{wch:12}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, L.templateSheetName);
+  XLSX.writeFile(wb, L.templateFileName);
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try{
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+      const body = rows.slice(1).filter(r => r && r.length && (r[0] !== undefined && r[0] !== ''));
+      items = body.map(r => ({
+        no: (r[0] !== undefined ? String(r[0]) : ''),
+        name: (r[1] !== undefined ? String(r[1]) : ''),
+        price: (r[2] !== undefined ? String(r[2]) : '')
+      }));
+      renderTable();
+    }catch(err){
+      alert(t('fileErrorAlert'));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
+function addRow(){
+  items.push({no:'', name:'', price:''});
+  renderTable();
+}
+function removeRow(idx){
+  items.splice(idx,1);
+  renderTable();
+}
+function updateItem(idx, key, value){
+  items[idx][key] = value;
+}
+
+function renderTable(){
+  const area = document.getElementById('tableArea');
+  const badge = document.getElementById('countBadge');
+  badge.textContent = items.length ? t('countBadge')(items.length) : '';
+  if(items.length === 0){
+    area.innerHTML = `<p class="empty-msg">${t('emptyMsg')}</p>`;
+    return;
+  }
+  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:16%">${t('colPrice')}</th><th style="width:36px"></th></tr></thead><tbody>`;
+  items.forEach((it, idx) => {
+    html += `<tr>
+      <td><input value="${escapeAttr(it.no)}" oninput="updateItem(${idx},'no',this.value)"></td>
+      <td><input value="${escapeAttr(it.name)}" oninput="updateItem(${idx},'name',this.value)"></td>
+      <td><input value="${escapeAttr(it.price)}" oninput="updateItem(${idx},'price',this.value)"></td>
+      <td><button class="del-btn" onclick="removeRow(${idx})">${t('del')}</button></td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+function escapeAttr(v){
+  return String(v == null ? '' : v).replace(/"/g,'&quot;');
+}
+function escapeHtml(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatProductNumber(raw){
+  const digits = String(raw || '').replace(/\D/g,'');
+  if(!digits) return '';
+  const padded = digits.slice(-8).padStart(8,'0');
+  return padded.slice(0,2) + '-' + padded.slice(2);
+}
+
+function formatPrice(raw){
+  const digits = String(raw || '').replace(/[^\d]/g,'');
+  if(!digits) return '';
+  const num = parseInt(digits, 10);
+  return num.toLocaleString('ja-JP') + '円';
+}
+
+function getPageChunks(){
+  const chunks = [];
+  for(let i=0; i<items.length; i+=16){
+    const chunk = items.slice(i, i+16);
+    while(chunk.length < 16) chunk.push(null);
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function renderPages(){
+  if(items.length === 0){
+    alert(t('needItemsAlert'));
+    return null;
+  }
+  const wrap = document.getElementById('previewWrap');
+  wrap.innerHTML = '';
+  const chunks = getPageChunks();
+  chunks.forEach(chunk => {
+    const page = document.createElement('div');
+    page.className = 'page';
+    const grid = document.createElement('div');
+    grid.className = 'tag-grid';
+    chunk.forEach(item => {
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      if(item && (item.no || item.name || item.price)){
+        tag.innerHTML = `
+          <div class="front">
+            <div class="pname">${escapeHtml(item.name)}</div>
+            <div class="pprice">${formatPrice(item.price)}</div>
+          </div>
+          <div class="back">
+            <div class="pcode">${formatProductNumber(item.no)}</div>
+          </div>
+        `;
+      } else {
+        tag.innerHTML = `<div class="front"></div><div class="back"></div>`;
+      }
+      grid.appendChild(tag);
+    });
+    page.appendChild(grid);
+    wrap.appendChild(page);
+  });
+  wrap.scrollIntoView({behavior:'smooth'});
+  return chunks;
+}
+
+async function exportPdf(){
+  if(items.length === 0){ alert(t('needItemsAlert')); return; }
+  const btn = document.getElementById('pdfBtn');
+  const originalLabel = btn.textContent;
+  const progressWrap = document.getElementById('pdfProgressWrap');
+  const progressBar = document.getElementById('pdfProgressBar');
+  const progressText = document.getElementById('pdfProgressText');
+  btn.disabled = true;
+  btn.textContent = t('outputPdfLoading');
+  progressWrap.style.display = 'flex';
+  progressBar.style.width = '0%';
+  progressText.textContent = '0%';
+  try{
+    renderPages();
+    await new Promise(r => setTimeout(r, 50));
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+    const pages = document.querySelectorAll('#previewWrap .page');
+    const total = pages.length;
+    for(let i=0; i<total; i++){
+      const canvas = await html2canvas(pages[i], { scale:2, backgroundColor:'#ffffff' });
+      const imgData = canvas.toDataURL('image/png');
+      if(i>0) pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
+      const percent = Math.round(((i+1)/total)*100);
+      progressBar.style.width = percent + '%';
+      progressText.textContent = `${i+1}/${total} (${percent}%)`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+    pdf.save(t('pdfFileName'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    progressWrap.style.display = 'none';
+  }
+}
+
+function exportExcel(){
+  if(items.length === 0){ alert(t('needItemsAlert')); return; }
+  const btn = document.getElementById('excelBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t('outputExcelLoading');
+  try{
+    const chunks = getPageChunks();
+    const wb = XLSX.utils.book_new();
+    chunks.forEach((chunk, pageIdx) => {
+      const aoa = [];
+      for(let r=0; r<4; r++){
+        const nameRow = [], priceRow = [], codeRow = [];
+        for(let c=0; c<4; c++){
+          const item = chunk[r*4+c];
+          nameRow.push(item ? item.name : '');
+          priceRow.push(item ? formatPrice(item.price) : '');
+          codeRow.push(item ? formatProductNumber(item.no) : '');
+        }
+        aoa.push(nameRow, priceRow, codeRow, ['','','','']);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:20},{wch:20},{wch:20},{wch:20}];
+      XLSX.utils.book_append_sheet(wb, ws, t('sheetName')(pageIdx+1));
+    });
+    XLSX.writeFile(wb, t('excelFileName'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+</script>
+</body>
+</html>
