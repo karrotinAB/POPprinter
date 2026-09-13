@@ -697,10 +697,10 @@ function generateBarcode(svgId, digits){
   else if(digits.length === 12) format = 'UPC';
   else if(digits.length === 8) format = 'EAN8';
   try{
-    JsBarcode(el, digits, { format, displayValue:false, margin:0, height:40, width:2 });
+    JsBarcode(el, digits, { format, displayValue:false, margin:0, height:40, width:2, flat:true });
   }catch(err){
     try{
-      JsBarcode(el, digits, { format:'CODE128', displayValue:false, margin:0, height:40, width:2 });
+      JsBarcode(el, digits, { format:'CODE128', displayValue:false, margin:0, height:40, width:2, flat:true });
     }catch(err2){ /* 바코드로 변환할 수 없는 값이면 그냥 비워둠 */ }
   }
 }
