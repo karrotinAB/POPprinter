@@ -1,0 +1,782 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>가격표 생성기 価格タグ作成ツール</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<style>
+  :root{
+    --ink:#1f2328;
+    --sub:#6b7280;
+    --line:#d9dde3;
+    --accent:#2f6fed;
+    --danger:#e0475a;
+    --bg:#f6f7f9;
+    --card:#ffffff;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+    background:var(--bg);
+    color:var(--ink);
+  }
+  .wrap{
+    max-width:920px;
+    margin:0 auto;
+    padding:32px 20px 80px;
+  }
+  .top-row{
+    display:flex;
+    justify-content:space-between;
+    align-items:flex-start;
+    gap:16px;
+  }
+  h1{ font-size:22px; margin:0 0 4px; }
+  .desc{ color:var(--sub); font-size:13px; margin:0 0 28px; }
+  .lang-switch{ display:flex; gap:4px; flex-shrink:0; }
+  .lang-switch button{ font-size:12px; padding:6px 12px; border-radius:999px; }
+  .lang-switch button.active{
+    background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600;
+  }
+  .step{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:20px 22px;
+    margin-bottom:16px;
+  }
+  .step-title{
+    display:flex; align-items:center; gap:8px;
+    font-size:15px; font-weight:700; margin-bottom:12px;
+  }
+  .step-num{
+    width:22px;height:22px; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:12px;
+    display:flex;align-items:center;justify-content:center; flex-shrink:0;
+  }
+  .row{ display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  .note{ color:var(--sub); font-size:12.5px; margin:10px 0 0; }
+  button{
+    font-family:inherit; font-size:13px; padding:9px 16px; border-radius:7px;
+    border:1px solid var(--line); background:#fff; color:var(--ink); cursor:pointer;
+  }
+  button.primary{ background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
+  button.ghost{ background:#fff; }
+  button:hover{ filter:brightness(0.97); }
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  input[type=file]{ font-size:13px; }
+
+  .progress-wrap{
+    display:none;
+    align-items:center;
+    gap:10px;
+    margin-top:12px;
+  }
+  .progress-track{
+    flex:1;
+    max-width:260px;
+    height:8px;
+    background:#eef0f3;
+    border-radius:999px;
+    overflow:hidden;
+  }
+  .progress-bar{
+    height:100%;
+    width:0%;
+    background:var(--accent);
+    transition:width 0.15s ease;
+  }
+  .progress-text{
+    font-size:12px;
+    color:var(--sub);
+    white-space:nowrap;
+  }
+
+  .table-scroll{
+    max-height:360px; overflow-y:auto; margin-top:14px;
+    border:1px solid var(--line); border-radius:6px;
+  }
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th,td{ border:1px solid var(--line); padding:6px 8px; text-align:left; }
+  th{
+    background:#fafbfc; font-weight:600; color:var(--sub); font-size:12px;
+    position:sticky; top:0; z-index:1;
+  }
+  td input{
+    width:100%; border:none; font-size:13px; font-family:inherit;
+    padding:3px 2px; background:transparent;
+  }
+  td input:focus{ outline:1px solid var(--accent); background:#fff; }
+  .del-btn{
+    border:none; background:none; color:var(--danger); cursor:pointer;
+    font-size:13px; padding:2px 6px;
+  }
+  .empty-msg{ color:var(--sub); font-size:13px; padding:20px 0; text-align:center; }
+  .table-actions{ margin-top:10px; display:flex; gap:8px; align-items:center; }
+  .count-badge{ font-size:12px; color:var(--sub); margin-left:auto; }
+
+  /* ---- 미리보기 영역 ---- */
+  #previewWrap{
+    margin-top:16px;
+    max-height:75vh;
+    overflow-y:auto;
+    border:1px solid var(--line);
+    border-radius:8px;
+    padding:20px;
+    background:#eef0f3;
+  }
+  #previewWrap:empty{ display:none; }
+
+  /* 실측값(ARTBOX ERP POP 출력 PDF 기준):
+     칸 크기 45.5mm x 63.92mm, 가로 간격 1.44mm, 세로 간격 없음
+     그리드 시작 위치: 왼쪽 11.82mm, 위쪽 18.87mm */
+  .page{
+    width:210mm;
+    height:297mm;
+    background:#fff;
+    margin:0 auto 24px;
+    position:relative;
+    box-shadow:0 1px 4px rgba(0,0,0,0.08);
+  }
+  .tag-grid{
+    position:absolute;
+    left:11.82mm;
+    top:18.87mm;
+    display:grid;
+    grid-template-columns:repeat(4, 45.5mm);
+    grid-template-rows:repeat(4, 63.92mm);
+    column-gap:1.44mm;
+    row-gap:0;
+  }
+  .tag{
+    width:45.5mm;
+    height:63.92mm;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    font-family:var(--tag-font, 'Malgun Gothic','Apple SD Gothic Neo',sans-serif);
+  }
+  .front{
+    flex:0 0 50%;
+    position:relative;
+    padding:3mm 2.5mm;
+  }
+  .pname{
+    position:absolute;
+    top:3mm;
+    left:2.5mm;
+    right:2.5mm;
+    font-size:10px;
+    line-height:1.3;
+    text-align:left;
+    word-break:keep-all;
+  }
+  .pprice{
+    position:absolute;
+    bottom:3mm;
+    right:2.5mm;
+    font-size:15px;
+    font-weight:800;
+    text-align:right;
+  }
+  .back{
+    flex:0 0 50%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    padding:0 2mm;
+    overflow:hidden;
+  }
+  .pcode{
+    font-size:15px;
+    font-weight:800;
+    letter-spacing:0.5px;
+    text-align:center;
+  }
+  .pcode-es{
+    font-size:8px;
+    color:#666;
+    letter-spacing:0.3px;
+    text-align:center;
+    margin-bottom:1mm;
+  }
+  .pbarcode-svg{
+    width:100%;
+    max-width:38mm;
+    height:auto;
+    display:block;
+  }
+  .pbarcode-num{
+    font-size:8.5px;
+    letter-spacing:0.5px;
+    text-align:center;
+    font-variant-numeric:tabular-nums;
+    margin-top:0.5mm;
+  }
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <div class="top-row">
+    <div>
+      <h1 data-i18n="title">가격표 생성기</h1>
+      <p class="desc" data-i18n="desc">엑셀로 제품 정보를 올리면 A4 한 장에 16개씩 가격표(앞: 제품명·가격 / 뒤: 제품코드)가 실제 인쇄 규격에 맞춰 자동으로 채워져요. 출력해서 가운데 접는 선을 기준으로 접으면 완성이에요.</p>
+    </div>
+    <div class="lang-switch">
+      <button id="langKoBtn" class="active" onclick="setLang('ko')">한국어</button>
+      <button id="langEsBtn" onclick="setLang('es')">Español</button>
+      <button id="langJaBtn" onclick="setLang('ja')">日本語</button>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">1</span><span data-i18n="step1">제품 정보 올리기</span></div>
+    <div class="row">
+      <button class="ghost" onclick="downloadTemplate()" data-i18n="templateBtn">엑셀 양식 다운로드</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls">
+    </div>
+    <p class="note" data-i18n="step1desc">양식의 열 순서(제품번호 · 제품명 · 제품금액)를 그대로 써주세요. 제품번호는 숫자만 입력해도 자동으로 00-000000 형태로 바뀌어요.</p>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">2</span><span data-i18n="step2">내용 확인 및 수정</span></div>
+    <div id="tableArea">
+      <p class="empty-msg" data-i18n="emptyMsg">아직 올라온 제품이 없어요. 엑셀을 올리거나 아래에서 직접 추가해 주세요.</p>
+    </div>
+    <div class="table-actions">
+      <button class="ghost" onclick="addRow()" data-i18n="addRow">행 추가</button>
+      <span class="count-badge" id="countBadge"></span>
+    </div>
+  </div>
+
+  <div class="step">
+    <div class="step-title"><span class="step-num">3</span><span data-i18n="step3">가격표 만들기</span></div>
+    <div class="row" style="margin-bottom:12px;">
+      <span style="font-size:13px;font-weight:600;" data-i18n="fontLabel">글꼴 선택</span>
+      <select id="fontSelect" onchange="onFontSelectChange()">
+        <option value="" data-i18n="fontDefault">기본 폰트</option>
+        <option value="'Noto Sans KR', sans-serif" data-google="Noto+Sans+KR:wght@400;700;900">Noto Sans KR (한글)</option>
+        <option value="'Black Han Sans', sans-serif" data-google="Black+Han+Sans">Black Han Sans (한글)</option>
+        <option value="'Jua', sans-serif" data-google="Jua">Jua (한글)</option>
+        <option value="'Do Hyeon', sans-serif" data-google="Do+Hyeon">Do Hyeon (한글)</option>
+        <option value="'Noto Sans JP', sans-serif" data-google="Noto+Sans+JP:wght@400;700;900">Noto Sans JP (日本語)</option>
+        <option value="'Kosugi Maru', sans-serif" data-google="Kosugi+Maru">Kosugi Maru (日本語)</option>
+        <option value="'Sawarabi Mincho', serif" data-google="Sawarabi+Mincho">Sawarabi Mincho (日本語)</option>
+        <option value="custom" data-i18n="fontCustom">파일 직접 업로드...</option>
+      </select>
+      <input type="file" id="customFontInput" accept=".ttf,.otf,.woff,.woff2" style="display:none">
+      <span id="customFontName" style="font-size:12px;color:var(--sub);"></span>
+    </div>
+    <p class="note" data-i18n="fontNote" style="margin:0 0 12px;">선택한 글꼴은 미리보기와 PDF 출력에 적용돼요. (엑셀 출력에는 적용되지 않아요)</p>
+    <div class="row" style="margin-bottom:6px;">
+      <span style="font-size:13px;font-weight:600;" data-i18n="currencyLabel">통화</span>
+      <select id="currencySelect" onchange="onCurrencyChange()">
+        <option value="auto" data-i18n="currencyAuto">언어 기본값</option>
+        <option value="krw">원 (KRW)</option>
+        <option value="jpy">円 (JPY)</option>
+        <option value="usd">$ (USD)</option>
+        <option value="custom" data-i18n="currencyCustom">직접 입력...</option>
+      </select>
+      <input type="text" id="currencyCustomInput" oninput="updateCustomCurrency()" placeholder="예: S/." style="display:none;width:70px;">
+      <select id="currencyPositionSelect" onchange="updateCustomCurrency()" style="display:none;">
+        <option value="suffix" data-i18n="currencySuffix">가격 뒤</option>
+        <option value="prefix" data-i18n="currencyPrefix">가격 앞</option>
+      </select>
+    </div>
+    <div class="row">
+      <button class="primary" onclick="renderPages()" data-i18n="previewBtn">가격표 미리보기 생성</button>
+      <button class="ghost" onclick="exportPdf()" id="pdfBtn" data-i18n="outputPdf">PDF로 출력하기</button>
+      <button class="ghost" onclick="exportExcel()" id="excelBtn" data-i18n="outputExcel">엑셀로 출력하기</button>
+    </div>
+    <div class="progress-wrap" id="pdfProgressWrap">
+      <div class="progress-track"><div class="progress-bar" id="pdfProgressBar"></div></div>
+      <span class="progress-text" id="pdfProgressText">0%</span>
+    </div>
+  </div>
+
+  <div id="previewWrap"></div>
+</div>
+
+<script>
+let items = [];
+let currentLang = 'ko';
+let currencyOverride = null;
+
+const i18n = {
+  ko: {
+    title:'가격표 생성기',
+    desc:'엑셀로 제품 정보를 올리면 A4 한 장에 16개씩 가격표(앞: 제품명·가격 / 뒤: 제품코드)가 실제 인쇄 규격에 맞춰 자동으로 채워져요. 출력해서 가운데 접는 선을 기준으로 접으면 완성이에요.',
+    step1:'제품 정보 올리기',
+    templateBtn:'엑셀 양식 다운로드',
+    step1desc:'양식의 열 순서(제품번호 · 제품명 · 제품금액)를 그대로 써주세요. 제품번호는 숫자만 입력해도 자동으로 00-000000 형태로 바뀌어요.',
+    step2:'내용 확인 및 수정',
+    emptyMsg:'아직 올라온 제품이 없어요. 엑셀을 올리거나 아래에서 직접 추가해 주세요.',
+    addRow:'행 추가',
+    colNo:'제품번호',
+    colName:'제품명',
+    colPrice:'제품금액',
+    del:'삭제',
+    countBadge:(n)=>`총 ${n}개`,
+    step3:'가격표 만들기',
+    fontLabel:'글꼴 선택',
+    fontDefault:'기본 폰트',
+    fontCustom:'파일 직접 업로드...',
+    fontNote:'선택한 글꼴은 미리보기와 PDF 출력에 적용돼요. (엑셀 출력에는 적용되지 않아요)',
+    fontLoadErrorAlert:'폰트 파일을 불러오는 중 문제가 발생했어요. ttf, otf, woff 파일인지 확인해 주세요.',
+    previewBtn:'가격표 미리보기 생성',
+    outputPdf:'PDF로 출력하기',
+    outputExcel:'엑셀로 출력하기',
+    outputPdfLoading:'PDF 만드는 중...',
+    outputExcelLoading:'엑셀 만드는 중...',
+    needItemsAlert:'제품 정보를 먼저 올리거나 입력해 주세요.',
+    fileErrorAlert:'엑셀 파일을 읽는 중 문제가 생겼어요. 양식에 맞게 저장했는지 확인해 주세요.',
+    sheetName:(n)=>`${n}페이지`,
+    pdfFileName:'가격표.pdf',
+    excelFileName:'가격표.xlsx',
+    templateFileName:'가격표_양식.xlsx',
+    templateSheetName:'가격표양식',
+    templateSample:['12345678','C타입 필로 화이트','2900'],
+    currencyFormat:(n)=> n.toLocaleString('ko-KR') + '원',
+    currencyLabel:'통화',
+    currencyAuto:'언어 기본값',
+    currencyCustom:'직접 입력...',
+    currencySuffix:'가격 뒤',
+    currencyPrefix:'가격 앞'
+  },
+  ja: {
+    title:'価格タグ作成ツール',
+    desc:'エクセルで商品情報をアップロードすると、A4用紙1枚に16個ずつ価格タグ(表:商品名・金額 / 裏:商品コード)が実際の印刷規格に合わせて自動的に作成されます。出力して、中央の折り線で折れば完成です。',
+    step1:'商品情報をアップロード',
+    templateBtn:'エクセルテンプレートをダウンロード',
+    step1desc:'テンプレートの列順(商品番号・商品名・金額)をそのまま使ってください。商品番号は数字だけ入力しても自動的に00-000000の形に変換されます。',
+    step2:'内容の確認と修正',
+    emptyMsg:'まだアップロードされた商品がありません。エクセルをアップロードするか、下から直接追加してください。',
+    addRow:'行を追加',
+    colNo:'商品番号',
+    colName:'商品名',
+    colPrice:'金額',
+    del:'削除',
+    countBadge:(n)=>`合計 ${n}件`,
+    step3:'価格タグを作成',
+    fontLabel:'フォント選択',
+    fontDefault:'デフォルトフォント',
+    fontCustom:'ファイルを直接アップロード...',
+    fontNote:'選択したフォントはプレビューとPDF出力に適用されます。(エクセル出力には適用されません)',
+    fontLoadErrorAlert:'フォントファイルの読み込み中に問題が発生しました。ttf、otf、woffファイルかご確認ください。',
+    previewBtn:'価格タグのプレビューを作成',
+    outputPdf:'PDFで出力',
+    outputExcel:'エクセルで出力',
+    outputPdfLoading:'PDF作成中...',
+    outputExcelLoading:'エクセル作成中...',
+    needItemsAlert:'先に商品情報をアップロードするか入力してください。',
+    fileErrorAlert:'エクセルファイルの読み込み中に問題が発生しました。テンプレートの形式を確認してください。',
+    sheetName:(n)=>`${n}ページ目`,
+    pdfFileName:'価格タグ.pdf',
+    excelFileName:'価格タグ.xlsx',
+    templateFileName:'価格タグ_テンプレート.xlsx',
+    templateSheetName:'テンプレート',
+    templateSample:['12345678','Cタイプ ピロー ホワイト','2900'],
+    currencyFormat:(n)=> n.toLocaleString('ja-JP') + '円',
+    currencyLabel:'通貨',
+    currencyAuto:'言語のデフォルト',
+    currencyCustom:'直接入力...',
+    currencySuffix:'価格の後ろ',
+    currencyPrefix:'価格の前'
+  },
+  es: {
+    title:'Generador de Etiquetas de Precio',
+    desc:'Sube la información de los productos en Excel y se generan automáticamente 16 etiquetas de precio por hoja A4 (frente: nombre y precio / dorso: código de producto), ajustadas al formato real de impresión. Imprime y dobla por la línea central para terminar.',
+    step1:'Subir información del producto',
+    templateBtn:'Descargar plantilla de Excel',
+    step1desc:'Usa el mismo orden de columnas de la plantilla (Código de producto · Nombre del producto · Precio). Si el código tiene solo números, se convierte automáticamente al formato 00-000000.',
+    step2:'Revisar y editar contenido',
+    emptyMsg:'Todavía no hay productos cargados. Sube un Excel o agrega uno manualmente abajo.',
+    addRow:'Agregar fila',
+    colNo:'Código de producto',
+    colName:'Nombre del producto',
+    colPrice:'Precio',
+    colBarcode:'Número de código de barras',
+    del:'Eliminar',
+    countBadge:(n)=>`Total: ${n}`,
+    step3:'Generar etiquetas de precio',
+    fontLabel:'Elegir fuente',
+    fontDefault:'Fuente predeterminada',
+    fontCustom:'Subir archivo...',
+    fontNote:'La fuente elegida se aplica en la vista previa y en el PDF. (No se aplica en la exportación a Excel)',
+    fontLoadErrorAlert:'Hubo un problema al cargar el archivo de fuente. Verifica que sea un archivo ttf, otf o woff.',
+    previewBtn:'Generar vista previa de etiquetas',
+    outputPdf:'Exportar como PDF',
+    outputExcel:'Exportar como Excel',
+    outputPdfLoading:'Generando PDF...',
+    outputExcelLoading:'Generando Excel...',
+    needItemsAlert:'Primero sube o ingresa la información del producto.',
+    fileErrorAlert:'Hubo un problema al leer el archivo de Excel. Verifica que esté guardado según la plantilla.',
+    sheetName:(n)=>`Página ${n}`,
+    pdfFileName:'etiquetas_de_precio.pdf',
+    excelFileName:'etiquetas_de_precio.xlsx',
+    templateFileName:'plantilla_etiquetas.xlsx',
+    templateSheetName:'Plantilla',
+    templateSample:['12345678','Almohada tipo C blanco','2900','7501234567892'],
+    currencyFormat:(n)=> '$' + n.toLocaleString('en-US'),
+    currencyLabel:'Moneda',
+    currencyAuto:'Predeterminado del idioma',
+    currencyCustom:'Ingresar manualmente...',
+    currencySuffix:'Después del precio',
+    currencyPrefix:'Antes del precio'
+  }
+};
+
+function t(key){ return i18n[currentLang][key]; }
+
+function setLang(lang){
+  currentLang = lang;
+  document.getElementById('langKoBtn').classList.toggle('active', lang==='ko');
+  document.getElementById('langJaBtn').classList.toggle('active', lang==='ja');
+  document.getElementById('langEsBtn').classList.toggle('active', lang==='es');
+  document.querySelectorAll('[data-i18n]').forEach(el=>{
+    const key = el.getAttribute('data-i18n');
+    if(typeof i18n[lang][key] === 'string') el.textContent = i18n[lang][key];
+  });
+  renderTable();
+}
+
+function downloadTemplate(){
+  const L = i18n[currentLang];
+  const headers = [L.colNo, L.colName, L.colPrice];
+  if(L.colBarcode) headers.push(L.colBarcode);
+  const wsData = [headers, L.templateSample];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = headers.map(() => ({wch:20}));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, L.templateSheetName);
+  XLSX.writeFile(wb, L.templateFileName);
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try{
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+      const body = rows.slice(1).filter(r => r && r.length && (r[0] !== undefined && r[0] !== ''));
+      items = body.map(r => ({
+        no: (r[0] !== undefined ? String(r[0]) : ''),
+        name: (r[1] !== undefined ? String(r[1]) : ''),
+        price: (r[2] !== undefined ? String(r[2]) : ''),
+        barcode: (r[3] !== undefined ? String(r[3]) : '')
+      }));
+      renderTable();
+    }catch(err){
+      alert(t('fileErrorAlert'));
+    }
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
+function onFontSelectChange(){
+  const sel = document.getElementById('fontSelect');
+  const opt = sel.options[sel.selectedIndex];
+  if(sel.value === 'custom'){
+    document.getElementById('customFontInput').click();
+    return;
+  }
+  document.getElementById('customFontName').textContent = '';
+  const googleParam = opt.getAttribute('data-google');
+  if(googleParam){ loadGoogleFont(googleParam); }
+  applyTagFont(sel.value || '');
+}
+
+function loadGoogleFont(param){
+  const id = 'google-font-' + param.split(':')[0].replace(/\+/g,'-');
+  if(document.getElementById(id)) return;
+  const link = document.createElement('link');
+  link.id = id;
+  link.rel = 'stylesheet';
+  link.href = `https://fonts.googleapis.com/css2?family=${param}&display=swap`;
+  document.head.appendChild(link);
+}
+
+function applyTagFont(fontFamily){
+  document.documentElement.style.setProperty('--tag-font', fontFamily || '');
+}
+
+document.getElementById('customFontInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  const sel = document.getElementById('fontSelect');
+  if(!file){ sel.value = ''; return; }
+  const reader = new FileReader();
+  reader.onload = async function(evt){
+    try{
+      const fontName = 'CustomUploadedFont';
+      const fontFace = new FontFace(fontName, evt.target.result);
+      const loaded = await fontFace.load();
+      document.fonts.add(loaded);
+      applyTagFont(`'${fontName}'`);
+      document.getElementById('customFontName').textContent = file.name;
+    }catch(err){
+      alert(t('fontLoadErrorAlert'));
+      sel.value = '';
+    }
+  };
+  reader.onerror = function(){
+    alert(t('fontLoadErrorAlert'));
+    sel.value = '';
+  };
+  reader.readAsArrayBuffer(file);
+  e.target.value = '';
+});
+
+function addRow(){
+  items.push({no:'', name:'', price:'', barcode:''});
+  renderTable();
+}
+function removeRow(idx){
+  items.splice(idx,1);
+  renderTable();
+}
+function updateItem(idx, key, value){
+  items[idx][key] = value;
+}
+
+function renderTable(){
+  const area = document.getElementById('tableArea');
+  const badge = document.getElementById('countBadge');
+  badge.textContent = items.length ? t('countBadge')(items.length) : '';
+  if(items.length === 0){
+    area.innerHTML = `<p class="empty-msg">${t('emptyMsg')}</p>`;
+    return;
+  }
+  const showBarcode = !!t('colBarcode');
+  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:14%">${t('colPrice')}</th>${showBarcode ? `<th style="width:20%">${t('colBarcode')}</th>` : ''}<th style="width:36px"></th></tr></thead><tbody>`;
+  items.forEach((it, idx) => {
+    html += `<tr>
+      <td><input value="${escapeAttr(it.no)}" oninput="updateItem(${idx},'no',this.value)"></td>
+      <td><input value="${escapeAttr(it.name)}" oninput="updateItem(${idx},'name',this.value)"></td>
+      <td><input value="${escapeAttr(it.price)}" oninput="updateItem(${idx},'price',this.value)"></td>
+      ${showBarcode ? `<td><input value="${escapeAttr(it.barcode)}" oninput="updateItem(${idx},'barcode',this.value)"></td>` : ''}
+      <td><button class="del-btn" onclick="removeRow(${idx})">${t('del')}</button></td>
+    </tr>`;
+  });
+  html += '</tbody></table></div>';
+  area.innerHTML = html;
+}
+
+function escapeAttr(v){
+  return String(v == null ? '' : v).replace(/"/g,'&quot;');
+}
+function escapeHtml(v){
+  return String(v == null ? '' : v)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function formatProductNumber(raw){
+  const digits = String(raw || '').replace(/\D/g,'');
+  if(!digits) return '';
+  const padded = digits.slice(-8).padStart(8,'0');
+  return padded.slice(0,2) + '-' + padded.slice(2);
+}
+
+function formatPrice(raw){
+  const digits = String(raw || '').replace(/[^\d]/g,'');
+  if(!digits) return '';
+  const num = parseInt(digits, 10);
+  if(currencyOverride){
+    const formatted = num.toLocaleString('en-US');
+    return currencyOverride.position === 'prefix' ? currencyOverride.symbol + formatted : formatted + currencyOverride.symbol;
+  }
+  return t('currencyFormat')(num);
+}
+
+function onCurrencyChange(){
+  const val = document.getElementById('currencySelect').value;
+  const customInput = document.getElementById('currencyCustomInput');
+  const posSelect = document.getElementById('currencyPositionSelect');
+  if(val === 'custom'){
+    customInput.style.display = 'inline-block';
+    posSelect.style.display = 'inline-block';
+    updateCustomCurrency();
+  } else {
+    customInput.style.display = 'none';
+    posSelect.style.display = 'none';
+    if(val === 'auto'){
+      currencyOverride = null;
+    } else {
+      const presets = {
+        krw:{symbol:'원', position:'suffix'},
+        jpy:{symbol:'円', position:'suffix'},
+        usd:{symbol:'$', position:'prefix'}
+      };
+      currencyOverride = presets[val];
+    }
+  }
+}
+
+function updateCustomCurrency(){
+  const symbol = document.getElementById('currencyCustomInput').value;
+  const position = document.getElementById('currencyPositionSelect').value;
+  currencyOverride = { symbol, position };
+}
+
+function getPageChunks(){
+  const chunks = [];
+  for(let i=0; i<items.length; i+=16){
+    const chunk = items.slice(i, i+16);
+    while(chunk.length < 16) chunk.push(null);
+    chunks.push(chunk);
+  }
+  return chunks;
+}
+
+function renderPages(){
+  if(items.length === 0){
+    alert(t('needItemsAlert'));
+    return null;
+  }
+  const wrap = document.getElementById('previewWrap');
+  wrap.innerHTML = '';
+  const chunks = getPageChunks();
+  let barcodeSeq = 0;
+  const pendingBarcodes = [];
+  chunks.forEach(chunk => {
+    const page = document.createElement('div');
+    page.className = 'page';
+    const grid = document.createElement('div');
+    grid.className = 'tag-grid';
+    chunk.forEach(item => {
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      if(item && (item.no || item.name || item.price)){
+        let backHtml;
+        if(currentLang === 'es'){
+          const svgId = `bc-svg-${barcodeSeq++}`;
+          backHtml = `
+            <div class="pcode-es">${formatProductNumber(item.no)}</div>
+            <svg id="${svgId}" class="pbarcode-svg"></svg>
+            <div class="pbarcode-num">${escapeHtml(item.barcode || '')}</div>
+          `;
+          if(item.barcode) pendingBarcodes.push({ svgId, value: String(item.barcode).replace(/\D/g,'') });
+        } else {
+          backHtml = `<div class="pcode">${formatProductNumber(item.no)}</div>`;
+        }
+        tag.innerHTML = `
+          <div class="front">
+            <div class="pname">${escapeHtml(item.name)}</div>
+            <div class="pprice">${formatPrice(item.price)}</div>
+          </div>
+          <div class="back">${backHtml}</div>
+        `;
+      } else {
+        tag.innerHTML = `<div class="front"></div><div class="back"></div>`;
+      }
+      grid.appendChild(tag);
+    });
+    page.appendChild(grid);
+    wrap.appendChild(page);
+  });
+  pendingBarcodes.forEach(({ svgId, value }) => generateBarcode(svgId, value));
+  wrap.scrollIntoView({behavior:'smooth'});
+  return chunks;
+}
+
+function generateBarcode(svgId, digits){
+  const el = document.getElementById(svgId);
+  if(!el || !digits) return;
+  let format = 'CODE128';
+  if(digits.length === 13) format = 'EAN13';
+  else if(digits.length === 12) format = 'UPC';
+  else if(digits.length === 8) format = 'EAN8';
+  try{
+    JsBarcode(el, digits, { format, displayValue:false, margin:0, height:40, width:2 });
+  }catch(err){
+    try{
+      JsBarcode(el, digits, { format:'CODE128', displayValue:false, margin:0, height:40, width:2 });
+    }catch(err2){ /* 바코드로 변환할 수 없는 값이면 그냥 비워둠 */ }
+  }
+}
+
+async function exportPdf(){
+  if(items.length === 0){ alert(t('needItemsAlert')); return; }
+  const btn = document.getElementById('pdfBtn');
+  const originalLabel = btn.textContent;
+  const progressWrap = document.getElementById('pdfProgressWrap');
+  const progressBar = document.getElementById('pdfProgressBar');
+  const progressText = document.getElementById('pdfProgressText');
+  btn.disabled = true;
+  btn.textContent = t('outputPdfLoading');
+  progressWrap.style.display = 'flex';
+  progressBar.style.width = '0%';
+  progressText.textContent = '0%';
+  try{
+    renderPages();
+    await new Promise(r => setTimeout(r, 50));
+    await document.fonts.ready;
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
+    const pages = document.querySelectorAll('#previewWrap .page');
+    const total = pages.length;
+    for(let i=0; i<total; i++){
+      const canvas = await html2canvas(pages[i], { scale:2, backgroundColor:'#ffffff' });
+      const imgData = canvas.toDataURL('image/png');
+      if(i>0) pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, 0, 210, 297);
+      const percent = Math.round(((i+1)/total)*100);
+      progressBar.style.width = percent + '%';
+      progressText.textContent = `${i+1}/${total} (${percent}%)`;
+      await new Promise(r => setTimeout(r, 0));
+    }
+    pdf.save(t('pdfFileName'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+    progressWrap.style.display = 'none';
+  }
+}
+
+function exportExcel(){
+  if(items.length === 0){ alert(t('needItemsAlert')); return; }
+  const btn = document.getElementById('excelBtn');
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = t('outputExcelLoading');
+  try{
+    const chunks = getPageChunks();
+    const wb = XLSX.utils.book_new();
+    chunks.forEach((chunk, pageIdx) => {
+      const aoa = [];
+      for(let r=0; r<4; r++){
+        const nameRow = [], priceRow = [], codeRow = [], barcodeRow = [];
+        for(let c=0; c<4; c++){
+          const item = chunk[r*4+c];
+          nameRow.push(item ? item.name : '');
+          priceRow.push(item ? formatPrice(item.price) : '');
+          codeRow.push(item ? formatProductNumber(item.no) : '');
+          barcodeRow.push(item ? (item.barcode || '') : '');
+        }
+        aoa.push(nameRow, priceRow, codeRow);
+        if(currentLang === 'es') aoa.push(barcodeRow);
+        aoa.push(['','','','']);
+      }
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = [{wch:20},{wch:20},{wch:20},{wch:20}];
+      XLSX.utils.book_append_sheet(wb, ws, t('sheetName')(pageIdx+1));
+    });
+    XLSX.writeFile(wb, t('excelFileName'));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+</script>
+</body>
+</html>
