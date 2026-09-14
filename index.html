@@ -200,13 +200,13 @@
     align-items:flex-end;
   }
   .porig{
-    font-size:11px;
+    font-size:13px;
     color:#8a8a8a;
     text-decoration:line-through;
     margin-bottom:0.5mm;
   }
   .pprice{
-    font-size:20px;
+    font-size:27px;
     font-weight:800;
     text-align:right;
   }
@@ -508,16 +508,37 @@ document.getElementById('fileInput').addEventListener('change', function(e){
       const wb = XLSX.read(data, {type:'array'});
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, {header:1});
-      const body = rows.slice(1).filter(r => r && r.length && (r[0] !== undefined && r[0] !== ''));
+      const headerRow = rows[0] || [];
+      const FIELD_LABELS = {
+        no: ['ko','ja','es'].map(l => i18n[l].colNo),
+        name: ['ko','ja','es'].map(l => i18n[l].colName),
+        origPrice: ['ko','ja','es'].map(l => i18n[l].colOrigPrice),
+        price: ['ko','ja','es'].map(l => i18n[l].colPrice),
+        barcode: ['ko','ja','es'].map(l => i18n[l].colBarcode).filter(Boolean),
+        badge: ['ko','ja','es'].map(l => i18n[l].colBadge)
+      };
+      const colMap = {};
+      headerRow.forEach((h, idx) => {
+        const val = String(h || '').trim();
+        if(!val) return;
+        for(const field in FIELD_LABELS){
+          if(FIELD_LABELS[field].some(label => label && label.trim() === val)) colMap[field] = idx;
+        }
+      });
       const hasBarcodeCol = !!i18n[currentLang].colBarcode;
-      const barcodeIdx = 4;
-      const badgeIdx = hasBarcodeCol ? 5 : 4;
+      const noIdx = colMap.no !== undefined ? colMap.no : 0;
+      const nameIdx = colMap.name !== undefined ? colMap.name : 1;
+      const origIdx = colMap.origPrice !== undefined ? colMap.origPrice : 2;
+      const priceIdx = colMap.price !== undefined ? colMap.price : 3;
+      const barcodeIdx = colMap.barcode !== undefined ? colMap.barcode : (hasBarcodeCol ? 4 : -1);
+      const badgeIdx = colMap.badge !== undefined ? colMap.badge : (hasBarcodeCol ? 5 : 4);
+      const body = rows.slice(1).filter(r => r && r.length && (r[noIdx] !== undefined && r[noIdx] !== ''));
       items = body.map(r => ({
-        no: (r[0] !== undefined ? String(r[0]) : ''),
-        name: (r[1] !== undefined ? String(r[1]) : ''),
-        origPrice: (r[2] !== undefined ? String(r[2]) : ''),
-        price: (r[3] !== undefined ? String(r[3]) : ''),
-        barcode: hasBarcodeCol ? (r[barcodeIdx] !== undefined ? String(r[barcodeIdx]) : '') : '',
+        no: (r[noIdx] !== undefined ? String(r[noIdx]) : ''),
+        name: (r[nameIdx] !== undefined ? String(r[nameIdx]) : ''),
+        origPrice: (r[origIdx] !== undefined ? String(r[origIdx]) : ''),
+        price: (r[priceIdx] !== undefined ? String(r[priceIdx]) : ''),
+        barcode: (barcodeIdx >= 0 && r[barcodeIdx] !== undefined) ? String(r[barcodeIdx]) : '',
         badge: normalizeBadge(r[badgeIdx])
       }));
       renderTable();
