@@ -191,13 +191,27 @@
     text-align:left;
     word-break:keep-all;
   }
-  .pprice{
+  .pprice-wrap{
     position:absolute;
     bottom:2mm;
     right:2.5mm;
-    font-size:15px;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+  }
+  .porig{
+    font-size:11px;
+    color:#8a8a8a;
+    text-decoration:line-through;
+    margin-bottom:0.5mm;
+  }
+  .pprice{
+    font-size:20px;
     font-weight:800;
     text-align:right;
+  }
+  .pprice-sale{
+    color:#e0231f;
   }
   .back{
     flex:0 0 50%;
@@ -337,6 +351,7 @@ const i18n = {
     colNo:'제품번호',
     colName:'제품명',
     colPrice:'제품금액',
+    colOrigPrice:'정가(세일 전)',
     colBadge:'배지',
     badgeNone:'없음',
     del:'삭제',
@@ -359,7 +374,7 @@ const i18n = {
     excelFileName:'가격표.xlsx',
     templateFileName:'가격표_양식.xlsx',
     templateSheetName:'가격표양식',
-    templateSample:['12345678','C타입 필로 화이트','2900','BEST'],
+    templateSample:['26-032350','슬림보조배터리2500그린8','7900','6900','SALE'],
     currencyFormat:(n, d=0)=> n.toLocaleString('ko-KR', {minimumFractionDigits:d, maximumFractionDigits:d}) + '원',
     currencyLabel:'통화',
     currencyAuto:'언어 기본값',
@@ -379,6 +394,7 @@ const i18n = {
     colNo:'商品番号',
     colName:'商品名',
     colPrice:'金額',
+    colOrigPrice:'定価(セール前)',
     colBadge:'バッジ',
     badgeNone:'なし',
     del:'削除',
@@ -401,7 +417,7 @@ const i18n = {
     excelFileName:'価格タグ.xlsx',
     templateFileName:'価格タグ_テンプレート.xlsx',
     templateSheetName:'テンプレート',
-    templateSample:['12345678','Cタイプ ピロー ホワイト','2900','BEST'],
+    templateSample:['26-032350','スリム補助バッテリー2500グリーン8','7900','6900','SALE'],
     currencyFormat:(n, d=0)=> n.toLocaleString('ja-JP', {minimumFractionDigits:d, maximumFractionDigits:d}) + '円',
     currencyLabel:'通貨',
     currencyAuto:'言語のデフォルト',
@@ -421,6 +437,7 @@ const i18n = {
     colNo:'Código de producto',
     colName:'Nombre del producto',
     colPrice:'Precio',
+    colOrigPrice:'Precio original',
     colBarcode:'Número de código de barras',
     colBadge:'Insignia',
     badgeNone:'Ninguno',
@@ -444,7 +461,7 @@ const i18n = {
     excelFileName:'etiquetas_de_precio.xlsx',
     templateFileName:'plantilla_etiquetas.xlsx',
     templateSheetName:'Plantilla',
-    templateSample:['12345678','Almohada tipo C blanco','2900','7501234567892','BEST'],
+    templateSample:['26-032350','Batería portátil slim 2500 verde8','7900','6900','7501234567892','SALE'],
     currencyFormat:(n, d=0)=> '$' + n.toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}),
     currencyLabel:'Moneda',
     currencyAuto:'Predeterminado del idioma',
@@ -470,7 +487,7 @@ function setLang(lang){
 
 function downloadTemplate(){
   const L = i18n[currentLang];
-  const headers = [L.colNo, L.colName, L.colPrice];
+  const headers = [L.colNo, L.colName, L.colOrigPrice, L.colPrice];
   if(L.colBarcode) headers.push(L.colBarcode);
   headers.push(L.colBadge);
   const wsData = [headers, L.templateSample];
@@ -493,12 +510,14 @@ document.getElementById('fileInput').addEventListener('change', function(e){
       const rows = XLSX.utils.sheet_to_json(ws, {header:1});
       const body = rows.slice(1).filter(r => r && r.length && (r[0] !== undefined && r[0] !== ''));
       const hasBarcodeCol = !!i18n[currentLang].colBarcode;
-      const badgeIdx = hasBarcodeCol ? 4 : 3;
+      const barcodeIdx = 4;
+      const badgeIdx = hasBarcodeCol ? 5 : 4;
       items = body.map(r => ({
         no: (r[0] !== undefined ? String(r[0]) : ''),
         name: (r[1] !== undefined ? String(r[1]) : ''),
-        price: (r[2] !== undefined ? String(r[2]) : ''),
-        barcode: hasBarcodeCol ? (r[3] !== undefined ? String(r[3]) : '') : '',
+        origPrice: (r[2] !== undefined ? String(r[2]) : ''),
+        price: (r[3] !== undefined ? String(r[3]) : ''),
+        barcode: hasBarcodeCol ? (r[barcodeIdx] !== undefined ? String(r[barcodeIdx]) : '') : '',
         badge: normalizeBadge(r[badgeIdx])
       }));
       renderTable();
@@ -564,7 +583,7 @@ document.getElementById('customFontInput').addEventListener('change', function(e
 });
 
 function addRow(){
-  items.push({no:'', name:'', price:'', barcode:'', badge:''});
+  items.push({no:'', name:'', origPrice:'', price:'', barcode:'', badge:''});
   renderTable();
 }
 function removeRow(idx){
@@ -577,7 +596,7 @@ function updateItem(idx, key, value){
 
 function normalizeBadge(v){
   const s = String(v || '').trim().toUpperCase();
-  return (s === 'BEST' || s === 'NEW') ? s : '';
+  return (s === 'BEST' || s === 'NEW' || s === 'SALE') ? s : '';
 }
 
 function renderTable(){
@@ -589,17 +608,19 @@ function renderTable(){
     return;
   }
   const showBarcode = !!t('colBarcode');
-  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:14%">${t('colPrice')}</th>${showBarcode ? `<th style="width:20%">${t('colBarcode')}</th>` : ''}<th style="width:11%">${t('colBadge')}</th><th style="width:36px"></th></tr></thead><tbody>`;
+  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:13%">${t('colOrigPrice')}</th><th style="width:13%">${t('colPrice')}</th>${showBarcode ? `<th style="width:18%">${t('colBarcode')}</th>` : ''}<th style="width:11%">${t('colBadge')}</th><th style="width:36px"></th></tr></thead><tbody>`;
   items.forEach((it, idx) => {
     html += `<tr>
       <td><input value="${escapeAttr(it.no)}" oninput="updateItem(${idx},'no',this.value)"></td>
       <td><input value="${escapeAttr(it.name)}" oninput="updateItem(${idx},'name',this.value)"></td>
+      <td><input value="${escapeAttr(it.origPrice)}" oninput="updateItem(${idx},'origPrice',this.value)"></td>
       <td><input value="${escapeAttr(it.price)}" oninput="updateItem(${idx},'price',this.value)"></td>
       ${showBarcode ? `<td><input value="${escapeAttr(it.barcode)}" oninput="updateItem(${idx},'barcode',this.value)"></td>` : ''}
       <td><select onchange="updateItem(${idx},'badge',this.value)">
         <option value="" ${it.badge ? '' : 'selected'}>${t('badgeNone')}</option>
         <option value="BEST" ${it.badge === 'BEST' ? 'selected' : ''}>BEST</option>
         <option value="NEW" ${it.badge === 'NEW' ? 'selected' : ''}>NEW</option>
+        <option value="SALE" ${it.badge === 'SALE' ? 'selected' : ''}>SALE</option>
       </select></td>
       <td><button class="del-btn" onclick="removeRow(${idx})">${t('del')}</button></td>
     </tr>`;
@@ -710,12 +731,16 @@ function renderPages(){
           backHtml = `<div class="pcode">${formatProductNumber(item.no)}</div>`;
         }
         const badgeHtml = item.badge ? `<div class="badge-banner">${escapeHtml(item.badge)}</div>` : '';
+        const isSale = item.badge === 'SALE';
+        const priceHtml = (isSale && item.origPrice)
+          ? `<div class="pprice-wrap"><div class="porig">${formatPrice(item.origPrice)}</div><div class="pprice pprice-sale">${formatPrice(item.price)}</div></div>`
+          : `<div class="pprice-wrap"><div class="pprice${isSale ? ' pprice-sale' : ''}">${formatPrice(item.price)}</div></div>`;
         tag.innerHTML = `
           <div class="front">
             ${badgeHtml}
             <div class="front-body">
               <div class="pname">${escapeHtml(item.name)}</div>
-              <div class="pprice">${formatPrice(item.price)}</div>
+              ${priceHtml}
             </div>
           </div>
           <div class="back">${backHtml}</div>
@@ -799,15 +824,16 @@ function exportExcel(){
     chunks.forEach((chunk, pageIdx) => {
       const aoa = [];
       for(let r=0; r<4; r++){
-        const nameRow = [], priceRow = [], codeRow = [], barcodeRow = [];
+        const nameRow = [], origRow = [], priceRow = [], codeRow = [], barcodeRow = [];
         for(let c=0; c<4; c++){
           const item = chunk[r*4+c];
           nameRow.push(item ? (item.badge ? `[${item.badge}] ` : '') + item.name : '');
+          origRow.push(item && item.origPrice ? `(${formatPrice(item.origPrice)})` : '');
           priceRow.push(item ? formatPrice(item.price) : '');
           codeRow.push(item ? formatProductNumber(item.no) : '');
           barcodeRow.push(item ? (item.barcode || '') : '');
         }
-        aoa.push(nameRow, priceRow, codeRow);
+        aoa.push(nameRow, origRow, priceRow, codeRow);
         if(currentLang === 'es') aoa.push(barcodeRow);
         aoa.push(['','','','']);
       }
