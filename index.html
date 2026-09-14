@@ -162,12 +162,28 @@
   }
   .front{
     flex:0 0 50%;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  .badge-banner{
+    background:#d81f26;
+    color:#fff;
+    font-weight:800;
+    font-style:italic;
+    font-size:10px;
+    letter-spacing:0.5px;
+    padding:1mm 2.5mm;
+    line-height:1.2;
+  }
+  .front-body{
     position:relative;
-    padding:3mm 2.5mm;
+    flex:1;
+    padding:2mm 2.5mm;
   }
   .pname{
     position:absolute;
-    top:3mm;
+    top:2mm;
     left:2.5mm;
     right:2.5mm;
     font-size:10px;
@@ -177,7 +193,7 @@
   }
   .pprice{
     position:absolute;
-    bottom:3mm;
+    bottom:2mm;
     right:2.5mm;
     font-size:15px;
     font-weight:800;
@@ -321,6 +337,8 @@ const i18n = {
     colNo:'제품번호',
     colName:'제품명',
     colPrice:'제품금액',
+    colBadge:'배지',
+    badgeNone:'없음',
     del:'삭제',
     countBadge:(n)=>`총 ${n}개`,
     step3:'가격표 만들기',
@@ -341,7 +359,7 @@ const i18n = {
     excelFileName:'가격표.xlsx',
     templateFileName:'가격표_양식.xlsx',
     templateSheetName:'가격표양식',
-    templateSample:['12345678','C타입 필로 화이트','2900'],
+    templateSample:['12345678','C타입 필로 화이트','2900','BEST'],
     currencyFormat:(n, d=0)=> n.toLocaleString('ko-KR', {minimumFractionDigits:d, maximumFractionDigits:d}) + '원',
     currencyLabel:'통화',
     currencyAuto:'언어 기본값',
@@ -361,6 +379,8 @@ const i18n = {
     colNo:'商品番号',
     colName:'商品名',
     colPrice:'金額',
+    colBadge:'バッジ',
+    badgeNone:'なし',
     del:'削除',
     countBadge:(n)=>`合計 ${n}件`,
     step3:'価格タグを作成',
@@ -381,7 +401,7 @@ const i18n = {
     excelFileName:'価格タグ.xlsx',
     templateFileName:'価格タグ_テンプレート.xlsx',
     templateSheetName:'テンプレート',
-    templateSample:['12345678','Cタイプ ピロー ホワイト','2900'],
+    templateSample:['12345678','Cタイプ ピロー ホワイト','2900','BEST'],
     currencyFormat:(n, d=0)=> n.toLocaleString('ja-JP', {minimumFractionDigits:d, maximumFractionDigits:d}) + '円',
     currencyLabel:'通貨',
     currencyAuto:'言語のデフォルト',
@@ -402,6 +422,8 @@ const i18n = {
     colName:'Nombre del producto',
     colPrice:'Precio',
     colBarcode:'Número de código de barras',
+    colBadge:'Insignia',
+    badgeNone:'Ninguno',
     del:'Eliminar',
     countBadge:(n)=>`Total: ${n}`,
     step3:'Generar etiquetas de precio',
@@ -422,7 +444,7 @@ const i18n = {
     excelFileName:'etiquetas_de_precio.xlsx',
     templateFileName:'plantilla_etiquetas.xlsx',
     templateSheetName:'Plantilla',
-    templateSample:['12345678','Almohada tipo C blanco','2900','7501234567892'],
+    templateSample:['12345678','Almohada tipo C blanco','2900','7501234567892','BEST'],
     currencyFormat:(n, d=0)=> '$' + n.toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}),
     currencyLabel:'Moneda',
     currencyAuto:'Predeterminado del idioma',
@@ -450,6 +472,7 @@ function downloadTemplate(){
   const L = i18n[currentLang];
   const headers = [L.colNo, L.colName, L.colPrice];
   if(L.colBarcode) headers.push(L.colBarcode);
+  headers.push(L.colBadge);
   const wsData = [headers, L.templateSample];
   const ws = XLSX.utils.aoa_to_sheet(wsData);
   ws['!cols'] = headers.map(() => ({wch:20}));
@@ -469,11 +492,14 @@ document.getElementById('fileInput').addEventListener('change', function(e){
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, {header:1});
       const body = rows.slice(1).filter(r => r && r.length && (r[0] !== undefined && r[0] !== ''));
+      const hasBarcodeCol = !!i18n[currentLang].colBarcode;
+      const badgeIdx = hasBarcodeCol ? 4 : 3;
       items = body.map(r => ({
         no: (r[0] !== undefined ? String(r[0]) : ''),
         name: (r[1] !== undefined ? String(r[1]) : ''),
         price: (r[2] !== undefined ? String(r[2]) : ''),
-        barcode: (r[3] !== undefined ? String(r[3]) : '')
+        barcode: hasBarcodeCol ? (r[3] !== undefined ? String(r[3]) : '') : '',
+        badge: normalizeBadge(r[badgeIdx])
       }));
       renderTable();
     }catch(err){
@@ -538,7 +564,7 @@ document.getElementById('customFontInput').addEventListener('change', function(e
 });
 
 function addRow(){
-  items.push({no:'', name:'', price:'', barcode:''});
+  items.push({no:'', name:'', price:'', barcode:'', badge:''});
   renderTable();
 }
 function removeRow(idx){
@@ -549,22 +575,32 @@ function updateItem(idx, key, value){
   items[idx][key] = value;
 }
 
+function normalizeBadge(v){
+  const s = String(v || '').trim().toUpperCase();
+  return (s === 'BEST' || s === 'NEW') ? s : '';
+}
+
 function renderTable(){
   const area = document.getElementById('tableArea');
-  const badge = document.getElementById('countBadge');
-  badge.textContent = items.length ? t('countBadge')(items.length) : '';
+  const countEl = document.getElementById('countBadge');
+  countEl.textContent = items.length ? t('countBadge')(items.length) : '';
   if(items.length === 0){
     area.innerHTML = `<p class="empty-msg">${t('emptyMsg')}</p>`;
     return;
   }
   const showBarcode = !!t('colBarcode');
-  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:14%">${t('colPrice')}</th>${showBarcode ? `<th style="width:20%">${t('colBarcode')}</th>` : ''}<th style="width:36px"></th></tr></thead><tbody>`;
+  let html = `<div class="table-scroll"><table><thead><tr><th style="width:16%">${t('colNo')}</th><th>${t('colName')}</th><th style="width:14%">${t('colPrice')}</th>${showBarcode ? `<th style="width:20%">${t('colBarcode')}</th>` : ''}<th style="width:11%">${t('colBadge')}</th><th style="width:36px"></th></tr></thead><tbody>`;
   items.forEach((it, idx) => {
     html += `<tr>
       <td><input value="${escapeAttr(it.no)}" oninput="updateItem(${idx},'no',this.value)"></td>
       <td><input value="${escapeAttr(it.name)}" oninput="updateItem(${idx},'name',this.value)"></td>
       <td><input value="${escapeAttr(it.price)}" oninput="updateItem(${idx},'price',this.value)"></td>
       ${showBarcode ? `<td><input value="${escapeAttr(it.barcode)}" oninput="updateItem(${idx},'barcode',this.value)"></td>` : ''}
+      <td><select onchange="updateItem(${idx},'badge',this.value)">
+        <option value="" ${it.badge ? '' : 'selected'}>${t('badgeNone')}</option>
+        <option value="BEST" ${it.badge === 'BEST' ? 'selected' : ''}>BEST</option>
+        <option value="NEW" ${it.badge === 'NEW' ? 'selected' : ''}>NEW</option>
+      </select></td>
       <td><button class="del-btn" onclick="removeRow(${idx})">${t('del')}</button></td>
     </tr>`;
   });
@@ -673,10 +709,14 @@ function renderPages(){
         } else {
           backHtml = `<div class="pcode">${formatProductNumber(item.no)}</div>`;
         }
+        const badgeHtml = item.badge ? `<div class="badge-banner">${escapeHtml(item.badge)}</div>` : '';
         tag.innerHTML = `
           <div class="front">
-            <div class="pname">${escapeHtml(item.name)}</div>
-            <div class="pprice">${formatPrice(item.price)}</div>
+            ${badgeHtml}
+            <div class="front-body">
+              <div class="pname">${escapeHtml(item.name)}</div>
+              <div class="pprice">${formatPrice(item.price)}</div>
+            </div>
           </div>
           <div class="back">${backHtml}</div>
         `;
@@ -762,7 +802,7 @@ function exportExcel(){
         const nameRow = [], priceRow = [], codeRow = [], barcodeRow = [];
         for(let c=0; c<4; c++){
           const item = chunk[r*4+c];
-          nameRow.push(item ? item.name : '');
+          nameRow.push(item ? (item.badge ? `[${item.badge}] ` : '') + item.name : '');
           priceRow.push(item ? formatPrice(item.price) : '');
           codeRow.push(item ? formatProductNumber(item.no) : '');
           barcodeRow.push(item ? (item.barcode || '') : '');
