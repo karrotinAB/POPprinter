@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>Price Tag Printer</title>
+<title>가격표 생성기 価格タグ作成ツール</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -342,7 +342,7 @@ const i18n = {
     templateFileName:'가격표_양식.xlsx',
     templateSheetName:'가격표양식',
     templateSample:['12345678','C타입 필로 화이트','2900'],
-    currencyFormat:(n)=> n.toLocaleString('ko-KR') + '원',
+    currencyFormat:(n, d=0)=> n.toLocaleString('ko-KR', {minimumFractionDigits:d, maximumFractionDigits:d}) + '원',
     currencyLabel:'통화',
     currencyAuto:'언어 기본값',
     currencyCustom:'직접 입력...',
@@ -382,7 +382,7 @@ const i18n = {
     templateFileName:'価格タグ_テンプレート.xlsx',
     templateSheetName:'テンプレート',
     templateSample:['12345678','Cタイプ ピロー ホワイト','2900'],
-    currencyFormat:(n)=> n.toLocaleString('ja-JP') + '円',
+    currencyFormat:(n, d=0)=> n.toLocaleString('ja-JP', {minimumFractionDigits:d, maximumFractionDigits:d}) + '円',
     currencyLabel:'通貨',
     currencyAuto:'言語のデフォルト',
     currencyCustom:'直接入力...',
@@ -423,7 +423,7 @@ const i18n = {
     templateFileName:'plantilla_etiquetas.xlsx',
     templateSheetName:'Plantilla',
     templateSample:['12345678','Almohada tipo C blanco','2900','7501234567892'],
-    currencyFormat:(n)=> '$' + n.toLocaleString('en-US'),
+    currencyFormat:(n, d=0)=> '$' + n.toLocaleString('en-US', {minimumFractionDigits:d, maximumFractionDigits:d}),
     currencyLabel:'Moneda',
     currencyAuto:'Predeterminado del idioma',
     currencyCustom:'Ingresar manualmente...',
@@ -588,14 +588,18 @@ function formatProductNumber(raw){
 }
 
 function formatPrice(raw){
-  const digits = String(raw || '').replace(/[^\d]/g,'');
-  if(!digits) return '';
-  const num = parseInt(digits, 10);
+  let cleaned = String(raw || '').replace(/[^\d.]/g,'');
+  const dotParts = cleaned.split('.');
+  if(dotParts.length > 2) cleaned = dotParts[0] + '.' + dotParts.slice(1).join('');
+  if(!cleaned) return '';
+  const num = parseFloat(cleaned);
+  if(isNaN(num)) return '';
+  const decimals = (cleaned.includes('.') && num % 1 !== 0) ? 2 : 0;
   if(currencyOverride){
-    const formatted = num.toLocaleString('en-US');
+    const formatted = num.toLocaleString('en-US', {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
     return currencyOverride.position === 'prefix' ? currencyOverride.symbol + formatted : formatted + currencyOverride.symbol;
   }
-  return t('currencyFormat')(num);
+  return t('currencyFormat')(num, decimals);
 }
 
 function onCurrencyChange(){
