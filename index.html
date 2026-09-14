@@ -517,29 +517,48 @@ document.getElementById('fileInput').addEventListener('change', function(e){
         barcode: ['ko','ja','es'].map(l => i18n[l].colBarcode).filter(Boolean),
         badge: ['ko','ja','es'].map(l => i18n[l].colBadge)
       };
+      // 키워드 목록은 순서가 중요함 (더 구체적인 것부터 검사)
+      const KEYWORD_RULES = [
+        ['barcode', ['barra','barcode','바코드','バーコード']],
+        ['badge',   ['insignia','badge','배지','バッジ']],
+        ['no',      ['código de producto','product code','codigo de producto','제품번호','商品番号']],
+        ['price',   ['oferta','sale','세일','セール']], // '세일/오퍼타' 등이 같이 있어야 세일가로 인식
+        ['origPrice',['precio','정가','정가격','価格','金額','original']],
+        ['name',    ['nombre','product name','제품명','商品名']]
+      ];
       const colMap = {};
       headerRow.forEach((h, idx) => {
         const val = String(h || '').trim();
         if(!val) return;
+        const valLower = val.toLowerCase();
+        // 1단계: 우리 양식과 정확히 같은 텍스트인지 확인
         for(const field in FIELD_LABELS){
-          if(FIELD_LABELS[field].some(label => label && label.trim() === val)) colMap[field] = idx;
+          if(colMap[field] === undefined && FIELD_LABELS[field].some(label => label && label.trim() === val)){
+            colMap[field] = idx;
+          }
+        }
+        // 2단계: 정확히 일치하는 게 없으면 키워드로 추정 (다른 도구에서 만든 파일 대응)
+        for(const [field, keywords] of KEYWORD_RULES){
+          if(colMap[field] === undefined && keywords.some(kw => valLower.includes(kw))){
+            colMap[field] = idx;
+            break;
+          }
         }
       });
-      const hasBarcodeCol = !!i18n[currentLang].colBarcode;
       const noIdx = colMap.no !== undefined ? colMap.no : 0;
       const nameIdx = colMap.name !== undefined ? colMap.name : 1;
-      const origIdx = colMap.origPrice !== undefined ? colMap.origPrice : 2;
-      const priceIdx = colMap.price !== undefined ? colMap.price : 3;
-      const barcodeIdx = colMap.barcode !== undefined ? colMap.barcode : (hasBarcodeCol ? 4 : -1);
-      const badgeIdx = colMap.badge !== undefined ? colMap.badge : (hasBarcodeCol ? 5 : 4);
+      const origIdx = colMap.origPrice !== undefined ? colMap.origPrice : -1;
+      const priceIdx = colMap.price !== undefined ? colMap.price : -1;
+      const barcodeIdx = colMap.barcode !== undefined ? colMap.barcode : -1;
+      const badgeIdx = colMap.badge !== undefined ? colMap.badge : -1;
       const body = rows.slice(1).filter(r => r && r.length && (r[noIdx] !== undefined && r[noIdx] !== ''));
       items = body.map(r => ({
         no: (r[noIdx] !== undefined ? String(r[noIdx]) : ''),
         name: (r[nameIdx] !== undefined ? String(r[nameIdx]) : ''),
-        origPrice: (r[origIdx] !== undefined ? String(r[origIdx]) : ''),
-        price: (r[priceIdx] !== undefined ? String(r[priceIdx]) : ''),
+        origPrice: (origIdx >= 0 && r[origIdx] !== undefined) ? String(r[origIdx]) : '',
+        price: (priceIdx >= 0 && r[priceIdx] !== undefined) ? String(r[priceIdx]) : '',
         barcode: (barcodeIdx >= 0 && r[barcodeIdx] !== undefined) ? String(r[barcodeIdx]) : '',
-        badge: normalizeBadge(r[badgeIdx])
+        badge: (badgeIdx >= 0) ? normalizeBadge(r[badgeIdx]) : ''
       }));
       renderTable();
     }catch(err){
